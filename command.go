@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"html"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -162,13 +164,29 @@ func AddFeedHandler(s *State, cmd Command, user database.User) error {
 	return nil
 }
 
-func RSSHandler(_ *State, _ Command) error {
-	feed, err := fetchFeed(context.Background(), "https://www.wagslane.dev/index.xml")
+func RSSHandler(s *State, c Command) error {
+	timeBetweenReqs := "5s"
+
+	if len(c.Arguments) > 0 {
+		timeBetweenReqs = c.Arguments[0]
+	}
+
+	duration, err := time.ParseDuration(timeBetweenReqs)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println(feed)
+	ticker := time.NewTicker(duration)
+
+	for ; ; <-ticker.C {
+		err := scrapeFeed(s, c)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+	}
+
+	//fmt.Println(feed)
 
 	return nil
 }
@@ -255,6 +273,75 @@ func UnfollowHandler(s *State, cmd Command, user database.User) error {
 	}
 
 	fmt.Printf("Unfollowed %s\n", feedItem.Name)
+
+	return nil
+}
+
+func scrapeFeed(s *State, _ Command) error {
+	feedToFetch, err := s.DB.GetNextFeedToFetch(context.Background())
+	if err != nil {
+		return err
+	}
+
+	err = s.DB.MarkFeedFetched(context.Background(), feedToFetch.ID)
+	if err != nil {
+		return err
+	}
+
+	feed, err := fetchFeed(context.Background(), feedToFetch.Url)
+	if err != nil {
+		return err
+	}
+
+	for _, item := range feed.Channel.Item {
+		var publishedAt sql.NullTime
+		if t, err := time.Parse(time.RFC1123Z, item.PubDate); err == nil {
+			publishedAt = sql.NullTime{Time: t, Valid: true}
+		} else if t, err := time.Parse(time.RFC1123, item.PubDate); err == nil {
+			publishedAt = sql.NullTime{Time: t, Valid: true}
+		}
+
+		_, err := s.DB.CreatePost(context.Background(), database.CreatePostParams{
+			FeedID:      &feedToFetch.ID,
+			Title:       item.Title,
+			Description: item.Description,
+			Url:         item.Link,
+			PublishedAt: publishedAt,
+		})
+
+		if err != nil {
+			if strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
+				continue
+			}
+			fmt.Printf("could not create post: %v\n", err)
+			continue
+		}
+	}
+
+	return nil
+}
+
+func BrowseHandler(s *State, cmd Command, user database.User) error {
+	limit := 2
+	if len(cmd.Arguments) > 0 {
+		if num, err := strconv.Atoi(cmd.Arguments[0]); err == nil {
+			limit = num
+		}
+	}
+
+	queryParams := database.GetPostsForUserParams{
+		UserID: &user.ID,
+		Limit:  int32(limit),
+	}
+
+	posts, err := s.DB.GetPostsForUser(context.Background(), queryParams)
+	if err != nil {
+		return err
+	}
+
+	for _, post := range posts {
+		fmt.Printf("* %s - %s\n%v\n\n", post.Title, post.Url, post.Description)
+	}
 
 	return nil
 }
