@@ -1,0 +1,218 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"encoding/xml"
+	"errors"
+	"fmt"
+	"html"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/mohamednaga7/gator/internal/config"
+	"github.com/mohamednaga7/gator/internal/database"
+)
+
+type State struct {
+	DB     *database.Queries
+	Config *config.Config
+}
+
+type Command struct {
+	Name      string
+	Arguments []string
+}
+
+type Commands struct {
+	AvailableCommands map[string]func(s *State, cmd Command) error
+}
+
+type RSSFeed struct {
+	Channel struct {
+		Title       string    `xml:"title"`
+		Link        string    `xml:"link"`
+		Description string    `xml:"description"`
+		Item        []RSSItem `xml:"item"`
+	} `xml:"channel"`
+}
+
+type RSSItem struct {
+	Title       string `xml:"title"`
+	Link        string `xml:"link"`
+	Description string `xml:"description"`
+	PubDate     string `xml:"pubDate"`
+}
+
+func LoginHandler(s *State, cmd Command) error {
+	if len(cmd.Arguments) == 0 || strings.TrimSpace(cmd.Arguments[0]) == "" {
+		return errors.New("username argument required")
+	}
+
+	_, err := s.DB.GetUserByName(context.Background(), cmd.Arguments[0])
+	if err != nil {
+		return err
+	}
+
+	err = s.Config.SetUser(cmd.Arguments[0])
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("the user has been set")
+
+	return nil
+}
+
+func RegisterHandler(s *State, cmd Command) error {
+	if len(cmd.Arguments) == 0 || strings.TrimSpace(cmd.Arguments[0]) == "" {
+		return errors.New("username argument required")
+	}
+
+	name := strings.TrimSpace(cmd.Arguments[0])
+
+	userFound := true
+
+	_, err := s.DB.GetUserByName(context.Background(), name)
+	if err != nil {
+		if "sql: no rows in result set" == err.Error() {
+			userFound = false
+		} else {
+			return err
+		}
+	}
+
+	if userFound {
+		return errors.New("user already exists")
+	}
+
+	currentTime := sql.NullTime{Time: time.Now(), Valid: true}
+
+	newUser := database.CreateUserParams{
+		ID:        uuid.New(),
+		Name:      name,
+		CreatedAt: currentTime,
+		UpdatedAt: currentTime,
+	}
+
+	user, err := s.DB.CreateUser(context.Background(), newUser)
+	if err != nil {
+		return err
+	}
+
+	err = s.Config.SetUser(name)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("user %s with id %s has been created at %s\n", user.Name, user.ID.String(), time.Now().Format(time.RFC3339))
+
+	return nil
+}
+
+func ResetHandler(s *State, cmd Command) error {
+	err := s.DB.DeleteAllUsers(context.Background())
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("all users have been deleted")
+
+	return nil
+}
+
+func GetUsersHandler(s *State, cmd Command) error {
+	users, err := s.DB.GetAllUsers(context.Background())
+	if err != nil {
+		return err
+	}
+
+	for _, user := range users {
+		textToPrint := "* " + user.Name
+		if user.Name == s.Config.CurrentUserName {
+			textToPrint += " (current)"
+		}
+		fmt.Println(textToPrint)
+	}
+
+	return nil
+}
+
+func RSSHandler(s *State, cmd Command) error {
+	feed, err := fetchFeed(context.Background(), "https://www.wagslane.dev/index.xml")
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(feed)
+
+	return nil
+}
+
+func (c *Commands) Run(s *State, cmd Command) error {
+	availableCmd, ok := c.AvailableCommands[cmd.Name]
+	if !ok {
+		return errors.New("command not found")
+	}
+
+	return availableCmd(s, cmd)
+}
+
+func (c *Commands) Register(name string, f func(s *State, cmd Command) error) error {
+	c.AvailableCommands[name] = f
+	return nil
+}
+
+func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", feedURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", "gator")
+
+	client := http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(res.Body)
+
+	if res.StatusCode < 200 && res.StatusCode >= 400 {
+		return nil, errors.New("error fetching Rss Feed")
+	}
+
+	bodyBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var feed RSSFeed
+
+	err = xml.Unmarshal(bodyBytes, &feed)
+	if err != nil {
+		return nil, err
+	}
+
+	feed.Channel.Title = html.UnescapeString(feed.Channel.Title)
+	feed.Channel.Description = html.UnescapeString(feed.Channel.Description)
+
+	for _, item := range feed.Channel.Item {
+		item.Title = html.UnescapeString(item.Title)
+		item.Description = html.UnescapeString(item.Description)
+	}
+
+	return &feed, nil
+}
