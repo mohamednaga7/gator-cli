@@ -39,6 +39,8 @@ func main() {
 			"users":    GetUsersHandler,
 			"agg":      RSSHandler,
 			"addfeed":  AddFeedHandler,
+			"feeds":    PrintFeedHandler,
+			"follow":   FollowHandler,
 		},
 	}
 

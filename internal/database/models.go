@@ -19,6 +19,14 @@ type Feed struct {
 	UserID    uuid.NullUUID
 }
 
+type FeedFollow struct {
+	ID        uuid.UUID
+	UserID    uuid.NullUUID
+	FeedID    uuid.NullUUID
+	CreatedAt sql.NullTime
+	UpdatedAt sql.NullTime
+}
+
 type User struct {
 	ID        uuid.UUID
 	CreatedAt sql.NullTime

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -89,16 +88,7 @@ func RegisterHandler(s *State, cmd Command) error {
 		return errors.New("user already exists")
 	}
 
-	currentTime := sql.NullTime{Time: time.Now(), Valid: true}
-
-	newUser := database.CreateUserParams{
-		ID:        uuid.New(),
-		Name:      name,
-		CreatedAt: currentTime,
-		UpdatedAt: currentTime,
-	}
-
-	user, err := s.DB.CreateUser(context.Background(), newUser)
+	user, err := s.DB.CreateUser(context.Background(), name)
 	if err != nil {
 		return err
 	}
@@ -155,12 +145,9 @@ func AddFeedHandler(s *State, cmd Command) error {
 	}
 
 	_, err = s.DB.CreateFeed(context.Background(), database.CreateFeedParams{
-		ID:        uuid.New(),
-		CreatedAt: sql.NullTime{Time: time.Now(), Valid: true},
-		UpdatedAt: sql.NullTime{Time: time.Now(), Valid: true},
-		Name:      name,
-		Url:       url,
-		UserID:    uuid.NullUUID{UUID: user.ID, Valid: true},
+		Name:   name,
+		Url:    url,
+		UserID: uuid.NullUUID{UUID: user.ID, Valid: true},
 	})
 	if err != nil {
 		return fmt.Errorf("could not create feed: %w", err)
@@ -178,6 +165,54 @@ func RSSHandler(_ *State, _ Command) error {
 	}
 
 	fmt.Println(feed)
+
+	return nil
+}
+
+func PrintFeedHandler(s *State, _ Command) error {
+	feeds, err := s.DB.GetAllFeeds(context.Background())
+	if err != nil {
+		return err
+	}
+
+	for _, feed := range feeds {
+		fmt.Printf("* %s - %s - %s\n", feed.Name, feed.Url, feed.UserName)
+	}
+
+	return nil
+}
+
+func FollowHandler(s *State, cmd Command) error {
+	if len(cmd.Arguments) < 1 {
+		return errors.New("usage: follow <url>")
+	}
+
+	url := cmd.Arguments[0]
+
+	user, err := s.DB.GetUserByName(context.Background(), s.Config.CurrentUserName)
+	if err != nil {
+		return err
+	}
+
+	feedItem, err := s.DB.GetFeedByUrl(context.Background(), url)
+	if err != nil {
+		if "sql: no rows in result set" == err.Error() {
+			return errors.New("feed not found")
+		}
+		return err
+	}
+
+	newUserFeedParams := database.AddFeedFollowParams{
+		FeedID: uuid.NullUUID{UUID: feedItem.ID, Valid: true},
+		UserID: uuid.NullUUID{UUID: user.ID, Valid: true},
+	}
+
+	newUserFeed, err := s.DB.AddFeedFollow(context.Background(), newUserFeedParams)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Followed %s - %s\n", newUserFeed.UserName, newUserFeed.FeedName)
 
 	return nil
 }
