@@ -31,17 +31,12 @@ func main() {
 		Config: &appConfig,
 	}
 
-	commands := Commands{
-		AvailableCommands: map[string]func(s *State, cmd Command) error{
-			"login":    LoginHandler,
-			"register": RegisterHandler,
-			"reset":    ResetHandler,
-			"users":    GetUsersHandler,
-			"agg":      RSSHandler,
-			"addfeed":  AddFeedHandler,
-			"feeds":    PrintFeedHandler,
-			"follow":   FollowHandler,
-		},
+	commands := Commands{}
+
+	err = registerHandlers(&commands)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
 	}
 
 	args := os.Args
@@ -56,4 +51,35 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+}
+
+func registerHandlers(commands *Commands) error {
+	if err := commands.Register("login", LoginHandler); err != nil {
+		return err
+	}
+	if err := commands.Register("register", RegisterHandler); err != nil {
+		return err
+	}
+	if err := commands.Register("reset", ResetHandler); err != nil {
+		return err
+	}
+	if err := commands.Register("users", GetUsersHandler); err != nil {
+		return err
+	}
+	if err := commands.Register("agg", RSSHandler); err != nil {
+		return err
+	}
+	if err := commands.Register("addfeed", middlewareLoggedIn(AddFeedHandler)); err != nil {
+		return err
+	}
+	if err := commands.Register("feeds", PrintFeedHandler); err != nil {
+		return err
+	}
+	if err := commands.Register("follow", middlewareLoggedIn(FollowHandler)); err != nil {
+		return err
+	}
+	if err := commands.Register("following", middlewareLoggedIn(FeedFollowsHandler)); err != nil {
+		return err
+	}
+	return nil
 }

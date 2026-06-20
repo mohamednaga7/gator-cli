@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/mohamednaga7/gator/internal/config"
 	"github.com/mohamednaga7/gator/internal/database"
 )
@@ -103,7 +102,7 @@ func RegisterHandler(s *State, cmd Command) error {
 	return nil
 }
 
-func ResetHandler(s *State, cmd Command) error {
+func ResetHandler(s *State, _ Command) error {
 	err := s.DB.DeleteAllUsers(context.Background())
 	if err != nil {
 		return err
@@ -114,7 +113,7 @@ func ResetHandler(s *State, cmd Command) error {
 	return nil
 }
 
-func GetUsersHandler(s *State, cmd Command) error {
+func GetUsersHandler(s *State, _ Command) error {
 	users, err := s.DB.GetAllUsers(context.Background())
 	if err != nil {
 		return err
@@ -131,7 +130,7 @@ func GetUsersHandler(s *State, cmd Command) error {
 	return nil
 }
 
-func AddFeedHandler(s *State, cmd Command) error {
+func AddFeedHandler(s *State, cmd Command, user database.User) error {
 	if len(cmd.Arguments) < 2 {
 		return errors.New("usage: addfeed <name> <url>")
 	}
@@ -139,18 +138,23 @@ func AddFeedHandler(s *State, cmd Command) error {
 	name := cmd.Arguments[0]
 	url := cmd.Arguments[1]
 
-	user, err := s.DB.GetUserByName(context.Background(), s.Config.CurrentUserName)
-	if err != nil {
-		return fmt.Errorf("could not get current user: %w", err)
-	}
-
-	_, err = s.DB.CreateFeed(context.Background(), database.CreateFeedParams{
+	createdFeed, err := s.DB.CreateFeed(context.Background(), database.CreateFeedParams{
 		Name:   name,
 		Url:    url,
-		UserID: uuid.NullUUID{UUID: user.ID, Valid: true},
+		UserID: &user.ID,
 	})
 	if err != nil {
 		return fmt.Errorf("could not create feed: %w", err)
+	}
+
+	newUserFeedParams := database.AddFeedFollowParams{
+		FeedID: &createdFeed.ID,
+		UserID: &user.ID,
+	}
+
+	_, err = s.DB.AddFeedFollow(context.Background(), newUserFeedParams)
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("Feed created successfully:\n")
@@ -182,17 +186,12 @@ func PrintFeedHandler(s *State, _ Command) error {
 	return nil
 }
 
-func FollowHandler(s *State, cmd Command) error {
+func FollowHandler(s *State, cmd Command, user database.User) error {
 	if len(cmd.Arguments) < 1 {
 		return errors.New("usage: follow <url>")
 	}
 
 	url := cmd.Arguments[0]
-
-	user, err := s.DB.GetUserByName(context.Background(), s.Config.CurrentUserName)
-	if err != nil {
-		return err
-	}
 
 	feedItem, err := s.DB.GetFeedByUrl(context.Background(), url)
 	if err != nil {
@@ -203,8 +202,8 @@ func FollowHandler(s *State, cmd Command) error {
 	}
 
 	newUserFeedParams := database.AddFeedFollowParams{
-		FeedID: uuid.NullUUID{UUID: feedItem.ID, Valid: true},
-		UserID: uuid.NullUUID{UUID: user.ID, Valid: true},
+		FeedID: &feedItem.ID,
+		UserID: &user.ID,
 	}
 
 	newUserFeed, err := s.DB.AddFeedFollow(context.Background(), newUserFeedParams)
@@ -213,6 +212,19 @@ func FollowHandler(s *State, cmd Command) error {
 	}
 
 	fmt.Printf("Followed %s - %s\n", newUserFeed.UserName, newUserFeed.FeedName)
+
+	return nil
+}
+
+func FeedFollowsHandler(s *State, _ Command, user database.User) error {
+	feeds, err := s.DB.GetFeedFollowsByUserId(context.Background(), user.ID)
+	if err != nil {
+		return err
+	}
+
+	for _, feed := range feeds {
+		fmt.Printf("* %s\n", feed.FeedName)
+	}
 
 	return nil
 }
@@ -227,6 +239,9 @@ func (c *Commands) Run(s *State, cmd Command) error {
 }
 
 func (c *Commands) Register(name string, f func(s *State, cmd Command) error) error {
+	if c.AvailableCommands == nil {
+		c.AvailableCommands = make(map[string]func(s *State, cmd Command) error)
+	}
 	c.AvailableCommands[name] = f
 	return nil
 }
@@ -280,4 +295,14 @@ func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
 	}
 
 	return &feed, nil
+}
+
+func middlewareLoggedIn(handler func(s *State, cmd Command, user database.User) error) func(*State, Command) error {
+	return func(s *State, cmd Command) error {
+		user, err := s.DB.GetUserByName(context.Background(), s.Config.CurrentUserName)
+		if err != nil {
+			return err
+		}
+		return handler(s, cmd, user)
+	}
 }

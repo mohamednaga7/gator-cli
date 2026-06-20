@@ -18,7 +18,7 @@ INSERT INTO feed(name, url, user_id) VALUES ($1, $2, $3) RETURNING id, created_a
 type CreateFeedParams struct {
 	Name   string
 	Url    string
-	UserID uuid.NullUUID
+	UserID *uuid.UUID
 }
 
 func (q *Queries) CreateFeed(ctx context.Context, arg CreateFeedParams) (Feed, error) {
