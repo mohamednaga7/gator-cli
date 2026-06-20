@@ -185,10 +185,6 @@ func RSSHandler(s *State, c Command) error {
 			continue
 		}
 	}
-
-	//fmt.Println(feed)
-
-	return nil
 }
 
 func PrintFeedHandler(s *State, _ Command) error {
