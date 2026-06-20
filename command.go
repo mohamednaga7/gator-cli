@@ -229,6 +229,36 @@ func FeedFollowsHandler(s *State, _ Command, user database.User) error {
 	return nil
 }
 
+func UnfollowHandler(s *State, cmd Command, user database.User) error {
+	if len(cmd.Arguments) < 1 {
+		return errors.New("usage: unfollow <url>")
+	}
+
+	url := cmd.Arguments[0]
+
+	feedItem, err := s.DB.GetFeedByUrl(context.Background(), url)
+	if err != nil {
+		if "sql: no rows in result set" == err.Error() {
+			return errors.New("feed not found")
+		}
+		return err
+	}
+
+	deleteInput := database.DeleteByUserIdAndFeedIdParams{
+		UserID: &user.ID,
+		FeedID: &feedItem.ID,
+	}
+
+	err = s.DB.DeleteByUserIdAndFeedId(context.Background(), deleteInput)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Unfollowed %s\n", feedItem.Name)
+
+	return nil
+}
+
 func (c *Commands) Run(s *State, cmd Command) error {
 	availableCmd, ok := c.AvailableCommands[cmd.Name]
 	if !ok {

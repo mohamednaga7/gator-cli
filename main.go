@@ -81,5 +81,8 @@ func registerHandlers(commands *Commands) error {
 	if err := commands.Register("following", middlewareLoggedIn(FeedFollowsHandler)); err != nil {
 		return err
 	}
+	if err := commands.Register("unfollow", middlewareLoggedIn(UnfollowHandler)); err != nil {
+		return err
+	}
 	return nil
 }
