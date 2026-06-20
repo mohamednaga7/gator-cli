@@ -38,6 +38,7 @@ func main() {
 			"reset":    ResetHandler,
 			"users":    GetUsersHandler,
 			"agg":      RSSHandler,
+			"addfeed":  AddFeedHandler,
 		},
 	}
 

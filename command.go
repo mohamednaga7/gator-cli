@@ -141,7 +141,37 @@ func GetUsersHandler(s *State, cmd Command) error {
 	return nil
 }
 
-func RSSHandler(s *State, cmd Command) error {
+func AddFeedHandler(s *State, cmd Command) error {
+	if len(cmd.Arguments) < 2 {
+		return errors.New("usage: addfeed <name> <url>")
+	}
+
+	name := cmd.Arguments[0]
+	url := cmd.Arguments[1]
+
+	user, err := s.DB.GetUserByName(context.Background(), s.Config.CurrentUserName)
+	if err != nil {
+		return fmt.Errorf("could not get current user: %w", err)
+	}
+
+	_, err = s.DB.CreateFeed(context.Background(), database.CreateFeedParams{
+		ID:        uuid.New(),
+		CreatedAt: sql.NullTime{Time: time.Now(), Valid: true},
+		UpdatedAt: sql.NullTime{Time: time.Now(), Valid: true},
+		Name:      name,
+		Url:       url,
+		UserID:    uuid.NullUUID{UUID: user.ID, Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("could not create feed: %w", err)
+	}
+
+	fmt.Printf("Feed created successfully:\n")
+
+	return nil
+}
+
+func RSSHandler(_ *State, _ Command) error {
 	feed, err := fetchFeed(context.Background(), "https://www.wagslane.dev/index.xml")
 	if err != nil {
 		return err
