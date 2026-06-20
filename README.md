@@ -14,7 +14,7 @@ To run Gator, you need to have the following installed on your system:
 You can install the Gator CLI using the `go install` command:
 
 ```bash
-go install github.com/mohamednaga7/gator@latest
+go install github.com/mohamednaga7/gator-cli@latest
 ```
 
 Make sure your `GOBIN` directory (typically `~/go/bin`) is in your system's `PATH`.

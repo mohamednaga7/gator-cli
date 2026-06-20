@@ -6,9 +6,9 @@ import (
 	"os"
 
 	_ "github.com/lib/pq"
-	"github.com/mohamednaga7/gator/internal/database"
+	"github.com/mohamednaga7/gator-cli/internal/database"
 
-	"github.com/mohamednaga7/gator/internal/config"
+	"github.com/mohamednaga7/gator-cli/internal/config"
 )
 
 func main() {

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mohamednaga7/gator/internal/config"
-	"github.com/mohamednaga7/gator/internal/database"
+	"github.com/mohamednaga7/gator-cli/internal/config"
+	"github.com/mohamednaga7/gator-cli/internal/database"
 )
 
 type State struct {
